@@ -1,5 +1,19 @@
 import mmcv
 
+def dsec_classes():
+    """Pascal VOC class names for external use."""
+    return [
+            "background", "building", "fence", "person", "pole",
+            "road", "sidewalk", "vegetation", "car", "wall",
+            "traffic sign",
+    ]
+    
+def dsec_palette():
+    """Pascal VOC palette for external use."""
+    return [[0, 0, 0], [70, 70, 70], [190, 153, 153], [220, 20, 60], [153, 153, 153], 
+             [128, 64, 128], [244, 35, 232], [107, 142, 35], [0, 0, 142], [102, 102, 156], 
+             [220, 220, 0],]
+        
 
 def cityscapes_classes():
     """Cityscapes class names for external use."""
@@ -114,7 +128,8 @@ def voc_palette():
 dataset_aliases = {
     'cityscapes': ['cityscapes'],
     'ade': ['ade', 'ade20k'],
-    'voc': ['voc', 'pascal_voc', 'voc12', 'voc12aug']
+    'voc': ['voc', 'pascal_voc', 'voc12', 'voc12aug'],
+    'dsec': ['dsec']  # 数据集type类的小写
 }
 
 

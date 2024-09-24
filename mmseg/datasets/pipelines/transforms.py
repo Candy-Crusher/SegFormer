@@ -5,6 +5,11 @@ from numpy import random
 
 from ..builder import PIPELINES
 from IPython import embed
+from typing import Tuple, List, Union, Tuple, Optional
+import math
+import torchvision.transforms.functional as TF 
+from .formating import ToTensor
+from PIL import Image
 
 @PIPELINES.register_module()
 class AlignedResize(object):
@@ -1213,3 +1218,107 @@ class PhotoMetricDistortion(object):
                      f'{self.saturation_upper}), '
                      f'hue_delta={self.hue_delta})')
         return repr_str
+    
+@PIPELINES.register_module()
+class CMNext_Resize:
+    def __init__(self, size: Union[int, Tuple[int], List[int]]) -> None:
+        """Resize the input image to the given size.
+        Args:
+            size: Desired output size. 
+                If size is a sequence, the output size will be matched to this. 
+                If size is an int, the smaller edge of the image will be matched to this number maintaining the aspect ratio.
+        """
+        self.size = size
+
+    def __call__(self, sample:list) -> list:
+        if isinstance(sample['img'], np.ndarray):
+            sample['img'] = ToTensor()(sample['img'])
+            sample['gt_semantic_seg'] = ToTensor()(sample['gt_semantic_seg'])
+        H, W = sample['img'].shape[1:]
+
+        # scale the image 
+        scale_factor = self.size[0] / min(H, W)
+        nH, nW = round(H*scale_factor), round(W*scale_factor)
+        for k, v in sample.items():
+            if k == 'gt_semantic_seg':                
+                sample[k] = TF.resize(v, (nH, nW), TF.InterpolationMode.NEAREST)
+            elif k == 'img':
+                sample[k] = TF.resize(v, (nH, nW), TF.InterpolationMode.BILINEAR)
+        # img = TF.resize(img, (nH, nW), TF.InterpolationMode.BILINEAR)
+        # mask = TF.resize(mask, (nH, nW), TF.InterpolationMode.NEAREST)
+
+        # make the image divisible by stride
+        alignH, alignW = int(math.ceil(nH / 32)) * 32, int(math.ceil(nW / 32)) * 32
+        
+        for k, v in sample.items():
+            if k == 'gt_semantic_seg':                
+                sample['gt_semantic_seg'] = TF.resize(v, (alignH, alignW), TF.InterpolationMode.NEAREST)
+            elif k == 'img':
+                sample[k] = TF.resize(v, (alignH, alignW), TF.InterpolationMode.BILINEAR)
+        # img = TF.resize(img, (alignH, alignW), TF.InterpolationMode.BILINEAR)
+        # mask = TF.resize(mask, (alignH, alignW), TF.InterpolationMode.NEAREST)
+        # 再转回np
+        sample['img'] = np.array(sample['img'])
+        sample['gt_semantic_seg'] = np.array(sample['gt_semantic_seg'])
+        return sample
+
+@PIPELINES.register_module()
+class CMNext_RandomResizedCrop:
+    def __init__(self, size: Union[int, Tuple[int], List[int]], scale: Tuple[float, float] = (0.5, 2.0), seg_fill: int = 0) -> None:
+        """Resize the input image to the given size.
+        """
+        self.size = size
+        self.scale = scale
+        self.seg_fill = seg_fill
+
+    def __call__(self, sample: list) -> list:
+        # dict_keys(['img_info', 'ann_info', 'seg_fields', 'img_prefix', 'seg_prefix', 'filename', 'ori_filename', 'img', 'img_shape', 'ori_shape', 'pad_shape', 'scale_factor', 'img_norm_cfg', 'gt_semantic_seg', 'flip', 'flip_direction'])
+        # img, mask = sample['img'], sample['mask']
+        # Convert NumPy array to PIL image if necessary
+        print(sample['gt_semantic_seg'].shape)
+        print(sample['gt_semantic_seg'].max())
+        print(sample['gt_semantic_seg'].min())
+        input_to_tensor = ToTensor(['img', 'gt_semantic_seg'])
+        sample = input_to_tensor(sample)
+
+            
+        H, W = sample['img'].shape[:2]
+        tH, tW = self.size
+
+        # get the scale
+        ratio = random.random() * (self.scale[1] - self.scale[0]) + self.scale[0]
+        # ratio = random.uniform(min(self.scale), max(self.scale))
+        scale = int(tH*ratio), int(tW*4*ratio)
+        # scale the image 
+        scale_factor = min(max(scale)/max(H, W), min(scale)/min(H, W))
+        nH, nW = int(H * scale_factor + 0.5), int(W * scale_factor + 0.5)
+        # nH, nW = int(math.ceil(nH / 32)) * 32, int(math.ceil(nW / 32)) * 32
+        for k, v in sample.items():
+            if k == 'gt_semantic_seg':                
+                sample[k] = TF.resize(v, (nH, nW), TF.InterpolationMode.NEAREST)
+            elif k == 'img':
+                sample[k] = TF.resize(v, (nH, nW), TF.InterpolationMode.BILINEAR)
+
+        # random crop
+        margin_h = max(sample['img'].shape[1] - tH, 0)
+        margin_w = max(sample['img'].shape[2] - tW, 0)
+        y1 = random.randint(0, margin_h+1)
+        x1 = random.randint(0, margin_w+1)
+        y2 = y1 + tH
+        x2 = x1 + tW
+        for k, v in sample.items():
+            if k == 'gt_semantic_seg' or k == 'img':
+                sample[k] = v[:, y1:y2, x1:x2]
+
+        # pad the image
+        if sample['img'].shape[1:] != self.size:
+            padding = [0, 0, tW - sample['img'].shape[2], tH - sample['img'].shape[1]]
+            for k, v in sample.items():
+                if k == 'gt_semantic_seg':                
+                    sample[k] = TF.pad(v, padding, fill=self.seg_fill)
+                elif k == 'img':
+                    sample[k] = TF.pad(v, padding, fill=0)
+        # 再转回np
+        sample['img'] = np.array(sample['img'])
+        sample['gt_semantic_seg'] = np.array(sample['gt_semantic_seg'])
+        return sample

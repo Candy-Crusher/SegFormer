@@ -1,3 +1,8 @@
+import warnings
+
+# 忽略特定的 UserWarning
+warnings.filterwarnings("ignore", category=UserWarning, message=".*MMCV will release v2.0.0.*")
+
 import argparse
 import copy
 import os
@@ -19,7 +24,8 @@ from mmseg.utils import collect_env, get_root_logger
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a segmentor')
     parser.add_argument('config', help='train config file path')
-    parser.add_argument('--work-dir', help='the dir to save logs and models')
+    parser.add_argument('scene', help='day or night for dsec')
+    parser.add_argument('work_dir', help='the dir to save logs and models')
     parser.add_argument(
         '--load-from', help='the checkpoint file to load weights from')
     parser.add_argument(
@@ -65,6 +71,11 @@ def main():
     args = parse_args()
 
     cfg = Config.fromfile(args.config)
+    cfg.data_root = cfg.data_root + args.scene + '/'
+    cfg.data.train.data_root = cfg.data.train.data_root + args.scene + '/'
+    cfg.data.val.data_root = cfg.data.val.data_root + args.scene + '/'
+    cfg.data.test.data_root = cfg.data.test.data_root + args.scene + '/'
+
     if args.options is not None:
         cfg.merge_from_dict(args.options)
     # set cudnn_benchmark
@@ -74,10 +85,12 @@ def main():
     # work_dir is determined in this priority: CLI > segment in file > filename
     if args.work_dir is not None:
         # update configs according to CLI args if args.work_dir is not None
-        cfg.work_dir = args.work_dir
+        # cfg.work_dir = args.work_dir
+        cfg.work_dir = osp.join(args.work_dir,
+                        osp.splitext(osp.basename(args.config))[0])
     elif cfg.get('work_dir', None) is None:
         # use config filename as default work_dir if cfg.work_dir is None
-        cfg.work_dir = osp.join('./work_dirs',
+        cfg.work_dir = osp.join(args.work_dir,
                                 osp.splitext(osp.basename(args.config))[0])
     if args.load_from is not None:
         cfg.load_from = args.load_from
@@ -135,7 +148,7 @@ def main():
         test_cfg=cfg.get('test_cfg'))
 
     logger.info(model)
-
+    # import ipdb; ipdb.set_trace()
     datasets = [build_dataset(cfg.data.train)]
 
     if len(cfg.workflow) == 2:
